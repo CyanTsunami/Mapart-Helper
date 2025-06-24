@@ -1,0 +1,13 @@
+# Кэш линтера и питона
+.ruff_cache
+src/gui/__pycache__/
+src/gui/styles/__pycache__/
+src/logic/__pycache__/
+
+# Директория с обработанными изображениями
+output/
+
+# Палитры, но одну по умолчанию лучше оставить
+# (На текущий момент это палитра Эвила...)
+palettes/*
+!palettes/default.json
