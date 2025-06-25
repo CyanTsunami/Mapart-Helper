@@ -1,13 +1,8 @@
 from PIL import Image
 from PyQt5.QtCore import QThread, pyqtSignal
 from numba import set_num_threads
-from scipy.spatial import cKDTree
 import numpy as np
-import concurrent.futures
 import os
-
-from .transformers import (WEIGHTED_EUCLIDEAN_WEIGHTS, weighted_euclidean_batch, 
-                           rgb_to_lab_numba, ciede2000_numba_batch, bt2124_batch)
 
 
 class ImageConverter(QThread):
@@ -16,7 +11,7 @@ class ImageConverter(QThread):
     finished = pyqtSignal()
     file_finished = pyqtSignal(str)
 
-    def __init__(self, image_path, palette_colors, method='euclidean', block_size=1000, threads=None):
+    def __init__(self, image_path, palette_colors, method, block_size=1000, threads=None):
         super().__init__()
         self.image_path = image_path
         self.palette_colors = palette_colors
@@ -34,169 +29,13 @@ class ImageConverter(QThread):
                 img = img.convert('RGB')
 
             img_array = np.array(img, dtype=np.uint8)
-            height, width = img_array.shape[:2]
 
             # Преобразуем палитру в массив numpy
             palette_array = np.array([(int(c[2:4],16), int(c[4:6],16), int(c[6:8],16)) for c in self.palette_colors],
                                    dtype=np.uint8)
 
-            if self.method == 'euclidean':
-                # Многопоточная реализация евклидова расстояния
-                pixels = img_array.reshape(-1, 3)
-                result = np.zeros((height * width, 3), dtype=np.uint8)
-
-                # Разделяем работу на блоки
-                total_pixels = len(pixels)
-                chunk_size = max(1, total_pixels // self.threads)
-
-                with concurrent.futures.ThreadPoolExecutor(max_workers=self.threads) as executor:
-                    futures = []
-                    for i in range(0, total_pixels, chunk_size):
-                        chunk_end = min(i + chunk_size, total_pixels)
-                        futures.append(
-                            executor.submit(
-                                self.process_euclidean_chunk,
-                                pixels[i:chunk_end],
-                                palette_array,
-                                i,
-                                chunk_end
-                            )
-                        )
-
-                    for future in concurrent.futures.as_completed(futures):
-                        if not self._is_running:
-                            return
-
-                        chunk_result, start_idx, end_idx = future.result()
-                        result[start_idx:end_idx] = chunk_result
-
-                        # Обновляем прогресс
-                        progress = int((end_idx / total_pixels) * 100)
-                        self.progress_updated.emit(progress)
-
-                # Формируем итоговое изображение
-                result = result.reshape((height, width, 3))
-                self.result_ready.emit(result)
-
-            elif self.method == 'ciede2000_optimized':
-                pixels = img_array.reshape(-1, 3)
-                palette_lab = np.array([rgb_to_lab_numba(c) for c in palette_array])
-
-                result = np.zeros((height, width, 3), dtype=np.uint8)
-                total_pixels = pixels.shape[0]
-                processed_pixels = 0
-
-                # Обрабатываем изображение блоками с использованием ThreadPool
-                with concurrent.futures.ThreadPoolExecutor(max_workers=self.threads) as executor:
-                    futures = []
-                    for i in range(0, total_pixels, self.block_size):
-                        if not self._is_running:
-                            return
-
-                        block_end = min(i + self.block_size, total_pixels)
-                        block = pixels[i:block_end]
-
-                        futures.append(executor.submit(
-                            self.process_block,
-                            block, palette_lab, palette_array, i, width
-                        ))
-
-                    for future in concurrent.futures.as_completed(futures):
-                        if not self._is_running:
-                            return
-
-                        block_result, block_start, block_processed = future.result()
-
-                        # Заполняем результат
-                        for j in range(block_result.shape[0]):
-                            pixel_idx = block_start + j
-                            y = pixel_idx // width
-                            x = pixel_idx % width
-                            result[y, x] = block_result[j]
-
-                        # Обновляем прогресс
-                        processed_pixels += block_processed
-                        progress = int((processed_pixels / total_pixels) * 100)
-                        self.progress_updated.emit(progress)
-
-                self.result_ready.emit(result)
-
-            elif self.method == 'weighted_euclidean':
-                # Реализация взвешенного евклидова расстояния
-                pixels = img_array.reshape(-1, 3)
-                result = np.zeros((height * width, 3), dtype=np.uint8)
-
-                # Разделяем работу на блоки
-                total_pixels = len(pixels)
-                chunk_size = max(1, total_pixels // self.threads)
-
-                with concurrent.futures.ThreadPoolExecutor(max_workers=self.threads) as executor:
-                    futures = []
-                    for i in range(0, total_pixels, chunk_size):
-                        chunk_end = min(i + chunk_size, total_pixels)
-                        futures.append(
-                            executor.submit(
-                                self.process_weighted_euclidean_chunk,
-                                pixels[i:chunk_end],
-                                palette_array,
-                                WEIGHTED_EUCLIDEAN_WEIGHTS,
-                                i,
-                                chunk_end
-                            )
-                        )
-
-                    for future in concurrent.futures.as_completed(futures):
-                        if not self._is_running:
-                            return
-
-                        chunk_result, start_idx, end_idx = future.result()
-                        result[start_idx:end_idx] = chunk_result
-
-                        # Обновляем прогресс
-                        progress = int((end_idx / total_pixels) * 100)
-                        self.progress_updated.emit(progress)
-
-                # Формируем итоговое изображение
-                result = result.reshape((height, width, 3))
-                self.result_ready.emit(result)
-
-            elif self.method == 'bt2124':
-                # Реализация Rec. ITU-R BT.2124 (2019)
-                pixels = img_array.reshape(-1, 3)
-                result = np.zeros((height * width, 3), dtype=np.uint8)
-
-                # Разделяем работу на блоки
-                total_pixels = len(pixels)
-                chunk_size = max(1, total_pixels // self.threads)
-
-                with concurrent.futures.ThreadPoolExecutor(max_workers=self.threads) as executor:
-                    futures = []
-                    for i in range(0, total_pixels, chunk_size):
-                        chunk_end = min(i + chunk_size, total_pixels)
-                        futures.append(
-                            executor.submit(
-                                self.process_bt2124_chunk,
-                                pixels[i:chunk_end],
-                                palette_array,
-                                i,
-                                chunk_end
-                            )
-                        )
-
-                    for future in concurrent.futures.as_completed(futures):
-                        if not self._is_running:
-                            return
-
-                        chunk_result, start_idx, end_idx = future.result()
-                        result[start_idx:end_idx] = chunk_result
-
-                        # Обновляем прогресс
-                        progress = int((end_idx / total_pixels) * 100)
-                        self.progress_updated.emit(progress)
-
-                # Формируем итоговое изображение
-                result = result.reshape((height, width, 3))
-                self.result_ready.emit(result)
+            result = self.method(self, img_array, palette_array)
+            self.result_ready.emit(result)
 
             # Сохраняем результат
             output_dir = "output"
@@ -211,55 +50,6 @@ class ImageConverter(QThread):
             print(f"Error in ImageConverter: {e}")
         finally:
             self.finished.emit()
-
-    def process_euclidean_chunk(self, pixels_chunk, palette_array, start_idx, end_idx):
-        """Обработка блока пикселей с использованием евклидова расстояния"""
-        # Создаём дерево для быстрого поиска ближайших цветов
-        tree = cKDTree(palette_array)
-
-        # Находим ближайшие цвета для всех пикселей в блоке
-        distances, indices = tree.query(pixels_chunk, workers=1)
-
-        # Получаем цвета из палитры по найденным индексам
-        chunk_result = palette_array[indices]
-
-        return chunk_result, start_idx, end_idx
-
-    def process_weighted_euclidean_chunk(self, pixels_chunk, palette_array, weights, start_idx, end_idx):
-        """Обработка блока пикселей с использованием взвешенного евклидова расстояния"""
-        # Вычисляем расстояния
-        distances = weighted_euclidean_batch(pixels_chunk, palette_array, weights)
-        best_indices = np.argmin(distances, axis=1)
-
-        # Получаем цвета из палитры
-        chunk_result = palette_array[best_indices]
-
-        return chunk_result, start_idx, end_idx
-
-    def process_bt2124_chunk(self, pixels_chunk, palette_array, start_idx, end_idx):
-        """Обработка блока пикселей с использованием Rec. ITU-R BT.2124"""
-        # Вычисляем расстояния
-        distances = bt2124_batch(pixels_chunk, palette_array)
-        best_indices = np.argmin(distances, axis=1)
-
-        # Получаем цвета из палитры
-        chunk_result = palette_array[best_indices]
-
-        return chunk_result, start_idx, end_idx
-
-    def process_block(self, block, palette_lab, palette_array, block_start, image_width):
-        """Обработка блока пикселей в отдельном потоке (для CIEDE2000)"""
-        # Преобразуем блок в Lab
-        block_lab = np.array([rgb_to_lab_numba(p) for p in block])
-
-        # Находим ближайшие цвета в палитре
-        distances = ciede2000_numba_batch(block_lab, palette_lab)
-        best_indices = np.argmin(distances, axis=1)
-
-        # Получаем цвета из палитры
-        block_result = palette_array[best_indices]
-
-        return block_result, block_start, block.shape[0]
 
     def stop(self):
         self._is_running = False

@@ -3,6 +3,7 @@
 src/gui/__pycache__/
 src/gui/styles/__pycache__/
 src/logic/__pycache__/
+src/logic/methods/__pycache__/
 
 # Директория с обработанными изображениями
 output/

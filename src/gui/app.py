@@ -10,6 +10,10 @@ import os
 import json
 
 from ..logic.image_converter import ImageConverter
+from ..logic.methods.bt2124 import bt2124_method
+from ..logic.methods.ciede2000_optimized import ciede2000_optimized_method
+from ..logic.methods.euclidean import euclidean_method
+from ..logic.methods.weighted_euclidean import weighted_euclidean_method
 from .styles.DARK_STYLE import DARK_STYLE
 
 
@@ -259,10 +263,10 @@ class MainWindow(QMainWindow):
         self.convert_btn.setEnabled(False)
 
         method_map = {
-            0: 'euclidean',
-            1: 'ciede2000_optimized',
-            2: 'weighted_euclidean',
-            3: 'bt2124'
+            0: euclidean_method,
+            1: ciede2000_optimized_method,
+            2: weighted_euclidean_method,
+            3: bt2124_method
         }
         method = method_map[self.method_combo.currentIndex()]
         threads = self.threads_spin.value()
