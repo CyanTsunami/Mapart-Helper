@@ -16,7 +16,7 @@ class ImageConverter(QThread):
     finished = pyqtSignal()
     file_finished = pyqtSignal(str)
 
-    def __init__(self, image_path, palette_colors, method='euclidean', block_size=1000, threads=None):
+    def __init__(self, image_path, palette_colors, threads, method='euclidean', block_size=1000):
         super().__init__()
         self.image_path = image_path
         self.palette_colors = palette_colors
@@ -24,7 +24,7 @@ class ImageConverter(QThread):
         self.block_size = block_size
         self.threads = threads
         self._is_running = True
-        set_num_threads(threads or self.parent().max_threads)
+        set_num_threads(threads)
 
     def run(self):
         try:

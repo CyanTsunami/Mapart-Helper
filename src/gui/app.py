@@ -26,9 +26,9 @@ class MainWindow(QMainWindow):
         self.current_palette = None
         self.current_image_path = None
         self.output_dir = "output"
-        os.makedirs(self.output_dir, exist_ok=True)
         self.max_threads = cpu_count() - 1 or 1
         set_num_threads(self.max_threads)
+        os.makedirs(self.output_dir, exist_ok=True)
 
         self.setup_ui()
         self.setStyleSheet(DARK_STYLE)
@@ -270,9 +270,9 @@ class MainWindow(QMainWindow):
         self.converter = ImageConverter(
             image_path,
             self.current_palette,
+            threads,
             method=method,
-            block_size=1000,
-            threads=threads
+            block_size=1000
         )
         self.converter.progress_updated.connect(self.progress_bar.setValue)
         self.converter.result_ready.connect(self.show_result)
