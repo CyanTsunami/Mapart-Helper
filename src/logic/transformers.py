@@ -5,13 +5,13 @@ import math
 
 
 # Константы для преобразования цветов
-D65_X = 95.047
-D65_Y = 100.000
-D65_Z = 108.883
-CIE_E = 216.0 / 24389.0
-CIE_K = 24389.0 / 27.0
+D65_X = 95.047  # Координата X эталонного белого D65
+D65_Y = 100.000  # Координата Y эталонного белого D65
+D65_Z = 108.883  # Координата Z эталонного белого D65
+CIE_E = 216.0 / 24389.0  # Пороговое значение для преобразования XYZ в Lab
+CIE_K = 24389.0 / 27.0  # Коэффициент для преобразования XYZ в Lab
 
-# Коэффициенты для Weighted Euclidean
+# Коэффициенты для Weighted Euclidean (стандартные веса для RGB)
 WEIGHTED_EUCLIDEAN_WEIGHTS = np.array([0.299, 0.587, 0.114])
 
 # Коэффициенты для Rec. ITU-R BT.2124 (2019)
@@ -24,20 +24,37 @@ BT2124_COEFFS = np.array([
 
 @lru_cache(maxsize=65536)
 def rgb_to_lab_cached(rgb_tuple):
-    """Кэшированное преобразование RGB в Lab"""
+    """Кэшированное преобразование RGB в Lab
+
+    Args:
+        rgb_tuple (tuple): Кортеж из трех значений (R, G, B) в диапазоне 0-255
+
+    Returns:
+        tuple: Значения Lab в формате (L, a, b)
+    """
     return rgb_to_lab_numba(np.array(rgb_tuple))
 
 @njit(fastmath=True)
 def rgb_to_xyz_numba(rgb):
-    """Преобразование RGB в XYZ с использованием Numba"""
+    """Преобразование RGB в XYZ с использованием Numba для ускорения.
+
+      Выполняет преобразование из sRGB в XYZ с использованием матрицы преобразования
+      и белого D65.
+
+      Args:
+          rgb (ndarray): Массив из трех значений [R, G, B] в диапазоне 0-255
+
+      Returns:
+          tuple: Три значения XYZ (X, Y, Z)
+    """
     r, g, b = rgb[0] / 255.0, rgb[1] / 255.0, rgb[2] / 255.0
 
-    # Inverse sRGB companding
+    # Обратное преобразование sRGB
     r = r / 12.92 if r <= 0.04045 else ((r + 0.055) / 1.055) ** 2.4
     g = g / 12.92 if g <= 0.04045 else ((g + 0.055) / 1.055) ** 2.4
     b = b / 12.92 if b <= 0.04045 else ((b + 0.055) / 1.055) ** 2.4
 
-    # D65 reference white
+    # D65 белый
     x = r * 0.4124564 + g * 0.3575761 + b * 0.1804375
     y = r * 0.2126729 + g * 0.7151522 + b * 0.0721750
     z = r * 0.0193339 + g * 0.1191920 + b * 0.9503041
@@ -46,14 +63,21 @@ def rgb_to_xyz_numba(rgb):
 
 @njit(fastmath=True)
 def xyz_to_lab_numba(xyz):
-    """Преобразование XYZ в Lab с использованием Numba"""
+    """Преобразование XYZ в Lab с использованием Numba для ускорения.
+
+      Args:
+          xyz (tuple): Три значения XYZ (X, Y, Z)
+
+      Returns:
+          tuple: Три значения Lab (L, a, b)
+    """
     x, y, z = xyz
-    # D65 reference white
+    # Нормализация относительно эталонного белого D65
     x /= D65_X
     y /= D65_Y
     z /= D65_Z
 
-    # Nonlinear transform
+    # Нелинейное преобразование
     x = x ** (1/3) if x > CIE_E else (CIE_K * x + 16) / 116
     y = y ** (1/3) if y > CIE_E else (CIE_K * y + 16) / 116
     z = z ** (1/3) if z > CIE_E else (CIE_K * z + 16) / 116
@@ -66,13 +90,33 @@ def xyz_to_lab_numba(xyz):
 
 @njit(fastmath=True)
 def rgb_to_lab_numba(rgb):
-    """Преобразование RGB в Lab с использованием Numba"""
+    """Преобразование RGB в Lab с использованием Numba
+
+    Комбинирует преобразования RGB→XYZ и XYZ→Lab.
+
+    Args:
+        rgb (ndarray): Массив из трех значений [R, G, B] в диапазоне 0-255
+
+    Returns:
+        tuple: Три значения Lab (L, a, b)
+    """
     xyz = rgb_to_xyz_numba(rgb)
     return xyz_to_lab_numba(xyz)
 
 @njit(fastmath=True)
 def ciede2000_numba_single(lab1, lab2):
-    """Оптимизированная версия CIEDE2000 для одиночных цветов"""
+    """Вычисление цветового различия CIEDE2000 между двумя цветами Lab.
+
+      Реализация алгоритма CIEDE2000 для вычисления воспринимаемого
+      цветового различия между двумя цветами в пространстве Lab.
+
+      Args:
+          lab1 (ndarray): Первый цвет в формате Lab
+          lab2 (ndarray): Второй цвет в формате Lab
+
+      Returns:
+          float: Значение цветовых различий
+    """
     L1, a1, b1 = lab1[0], lab1[1], lab1[2]
     L2, a2, b2 = lab2[0], lab2[1], lab2[2]
 
@@ -157,7 +201,15 @@ def ciede2000_numba_single(lab1, lab2):
 
 @njit(fastmath=True, parallel=True)
 def ciede2000_numba_batch(lab_pixels, lab_palette):
-    """Векторизованная версия CIEDE2000 для пакетной обработки"""
+    """Векторизованное вычисление цветовых различий CIEDE2000 для пакета цветов.
+
+      Args:
+          lab_pixels (ndarray): Массив цветов в формате Lab (формат Nx3)
+          lab_palette (ndarray): Палитра цветов в формате Lab (формат Mx3)
+
+      Returns:
+          ndarray: Матрица расстояний размером NxM
+    """
     n_pixels = lab_pixels.shape[0]
     n_colors = lab_palette.shape[0]
     distances = np.empty((n_pixels, n_colors), dtype=np.float32)
@@ -170,7 +222,16 @@ def ciede2000_numba_batch(lab_pixels, lab_palette):
 
 @njit(fastmath=True)
 def weighted_euclidean_distance(rgb1, rgb2, weights):
-    """Вычисление взвешенного евклидова расстояния"""
+    """Вычисление взвешенного евклидова расстояния между двумя RGB цветами.
+
+      Args:
+          rgb1 (ndarray): Первый цвет в формате RGB
+          rgb2 (ndarray): Второй цвет в формате RGB
+          weights (ndarray): Веса для каналов R, G, B
+
+      Returns:
+          float: Взвешенное евклидово расстояние
+    """
     r_diff = rgb1[0] - rgb2[0]
     g_diff = rgb1[1] - rgb2[1]
     b_diff = rgb1[2] - rgb2[2]
@@ -181,7 +242,16 @@ def weighted_euclidean_distance(rgb1, rgb2, weights):
 
 @njit(fastmath=True, parallel=True)
 def weighted_euclidean_batch(pixels, palette, weights):
-    """Векторизованная версия взвешенного евклидова расстояния"""
+    """Векторизованное вычисление взвешенных евклидовых расстояний.
+
+      Args:
+          pixels (ndarray): Массив цветов в формате RGB (формат Nx3)
+          palette (ndarray): Палитра цветов в формате RGB (формат Mx3)
+          weights (ndarray): Веса для каналов R, G, B
+
+      Returns:
+          ndarray: Матрица расстояний размером NxM
+    """
     n_pixels = pixels.shape[0]
     n_colors = palette.shape[0]
     distances = np.empty((n_pixels, n_colors), dtype=np.float32)
@@ -194,7 +264,14 @@ def weighted_euclidean_batch(pixels, palette, weights):
 
 @njit(fastmath=True)
 def bt2124_transform(rgb):
-    """Преобразование RGB в цветовое пространство Rec. ITU-R BT.2124"""
+    """Преобразование RGB в цветовое пространство Rec. ITU-R BT.2124.
+
+      Args:
+          rgb (ndarray): Цвет в формате RGB
+
+      Returns:
+          tuple: Три значения в пространстве BT.2124
+    """
     r = rgb[0] / 255.0
     g = rgb[1] / 255.0
     b = rgb[2] / 255.0
@@ -208,7 +285,15 @@ def bt2124_transform(rgb):
 
 @njit(fastmath=True)
 def bt2124_distance(rgb1, rgb2):
-    """Вычисление расстояния в цветовом пространстве Rec. ITU-R BT.2124"""
+    """Вычисление расстояния в цветовом пространстве Rec. ITU-R BT.2124.
+
+      Args:
+          rgb1 (ndarray): Первый цвет в формате RGB
+          rgb2 (ndarray): Второй цвет в формате RGB
+
+      Returns:
+          float: Расстояние в пространстве BT.2124
+    """
     c1_1, c2_1, c3_1 = bt2124_transform(rgb1)
     c1_2, c2_2, c3_2 = bt2124_transform(rgb2)
 
@@ -220,7 +305,15 @@ def bt2124_distance(rgb1, rgb2):
 
 @njit(fastmath=True, parallel=True)
 def bt2124_batch(pixels, palette):
-    """Векторизованная версия расстояния Rec. ITU-R BT.2124"""
+    """Векторизованное вычисление расстояний BT.2124 для пакета цветов из палитры.
+
+      Args:
+          pixels (ndarray): Массив цветов в формате RGB (формат Nx3)
+          palette (ndarray): Палитра цветов в формате RGB (формат Mx3)
+
+      Returns:
+          ndarray: Матрица расстояний размером NxM
+    """
     n_pixels = pixels.shape[0]
     n_colors = palette.shape[0]
     distances = np.empty((n_pixels, n_colors), dtype=np.float32)
