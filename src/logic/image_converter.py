@@ -5,18 +5,48 @@ from scipy.spatial import cKDTree
 import numpy as np
 import concurrent.futures
 import os
+from datetime import datetime
 
-from .transformers import (WEIGHTED_EUCLIDEAN_WEIGHTS, weighted_euclidean_batch, 
-                           rgb_to_lab_numba, ciede2000_numba_batch, bt2124_batch)
+from .transformers import (
+    WEIGHTED_EUCLIDEAN_WEIGHTS,
+    weighted_euclidean_batch,
+    rgb_to_lab_numba,
+    ciede2000_numba_batch,
+    bt2124_batch
+)
 
 
 class ImageConverter(QThread):
+    """Конвертер изображений на основе QThread, который сопоставляет цвета изображений с заданной палитрой, используя различные методы.
+    Поддерживает несколько алгоритмов сопоставления цветов и параллельную обработку.
+
+    Signals:
+        progress_updated(int): Выдает процент выполнения (0-100)
+        result_ready(np.ndarray): Выдает преобразованное изображение в виде массива numpy
+        finished(): Выдает сообщение о завершении преобразования
+        file_finished(str): Выдает путь к сохраненному выходному файлу
+
+    Args:
+        image_path (str): Путь к входному изображению
+        palette_colors (list): Список шестнадцатеричных строк цветов (формат: "#RRGGBB")
+        method (str): Метод сопоставления цветов ('euclidean', 'weighted_euclidean',
+ 'ciede2000_optimized', или 'bt2124')
+        block_size (int): Number of pixels to process in each block
+        threads (int): Количество потоков для использования (None для автоматического)
+    """
+
     progress_updated = pyqtSignal(int)
     result_ready = pyqtSignal(np.ndarray)
     finished = pyqtSignal()
     file_finished = pyqtSignal(str)
 
-    def __init__(self, image_path, palette_colors, method='euclidean', block_size=1000, threads=None):
+    def __init__(
+    self,
+    image_path,
+    palette_colors,
+    method='euclidean',
+    block_size=1000,
+    threads=None):
         super().__init__()
         self.image_path = image_path
         self.palette_colors = palette_colors
@@ -200,9 +230,10 @@ class ImageConverter(QThread):
 
             # Сохраняем результат
             output_dir = "output"
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             os.makedirs(output_dir, exist_ok=True)
             base_name = os.path.splitext(os.path.basename(self.image_path))[0]
-            output_path = os.path.join(output_dir, f"{base_name}_converted.png")
+            output_path = os.path.join(output_dir, f"{base_name}_{timestamp}.png")
             Image.fromarray(result, 'RGB').save(output_path)
 
             self.file_finished.emit(output_path)
@@ -213,7 +244,17 @@ class ImageConverter(QThread):
             self.finished.emit()
 
     def process_euclidean_chunk(self, pixels_chunk, palette_array, start_idx, end_idx):
-        """Обработка блока пикселей с использованием евклидова расстояния"""
+        """Обработка блока пикселей с использованием метода евклидова расстояния
+
+        Args:
+            pixels_chunk: массив RGB-пикселей для обработки
+            palette_array: массив цветов палитры
+            start_idx: начальный индекс этого чанка
+            end_idx: конечный индекс этого чанка
+
+        Returns:
+            tuple: (result_chunk, start_idx, end_idx)
+        """
         # Создаём дерево для быстрого поиска ближайших цветов
         tree = cKDTree(palette_array)
 
@@ -226,7 +267,18 @@ class ImageConverter(QThread):
         return chunk_result, start_idx, end_idx
 
     def process_weighted_euclidean_chunk(self, pixels_chunk, palette_array, weights, start_idx, end_idx):
-        """Обработка блока пикселей с использованием взвешенного евклидова расстояния"""
+        """Обработка блока пикселей с использованием метода взвешенного евклидова расстояния
+
+        Args:
+            pixels_chunk: массив RGB-пикселей для обработки
+            palette_array: массив цветов палитры
+            weights: значения веса для каждого цветового канала
+            start_idx: начальный индекс этого чанка
+            end_idx: конечный индекс этого чанка
+
+        Returns:
+            tuple: (result_chunk, start_idx, end_idx)
+        """
         # Вычисляем расстояния
         distances = weighted_euclidean_batch(pixels_chunk, palette_array, weights)
         best_indices = np.argmin(distances, axis=1)
@@ -237,7 +289,17 @@ class ImageConverter(QThread):
         return chunk_result, start_idx, end_idx
 
     def process_bt2124_chunk(self, pixels_chunk, palette_array, start_idx, end_idx):
-        """Обработка блока пикселей с использованием Rec. ITU-R BT.2124"""
+        """Обработка блока пикселей с использованием метода Rec. ITU-R BT.2124
+
+        Args:
+            pixels_chunk: массив RGB-пикселей для обработки
+            palette_array: массив цветов палитры
+            start_idx: начальный индекс этого чанка
+            end_idx: конечный индекс этого чанка
+
+            Returns:
+                tuple: (result_chunk, start_idx, end_idx)
+    """
         # Вычисляем расстояния
         distances = bt2124_batch(pixels_chunk, palette_array)
         best_indices = np.argmin(distances, axis=1)
@@ -248,7 +310,18 @@ class ImageConverter(QThread):
         return chunk_result, start_idx, end_idx
 
     def process_block(self, block, palette_lab, palette_array, block_start, image_width):
-        """Обработка блока пикселей в отдельном потоке (для CIEDE2000)"""
+        """Обработка блока пикселей для метода CIEDE2000
+
+                Args:
+                    block: массив RGB пикселей для обработки
+                    palette_lab: цвета палитры в пространстве Lab
+                    palette_array: исходные цвета палитры
+                    block_start: Начальный индекс блока
+                    image_width: Ширина исходного изображения
+
+                Returns:
+                    tuple: (result_block, block_start, num_processed)
+                """
         # Преобразуем блок в Lab
         block_lab = np.array([rgb_to_lab_numba(p) for p in block])
 
@@ -262,5 +335,6 @@ class ImageConverter(QThread):
         return block_result, block_start, block.shape[0]
 
     def stop(self):
+        """Завершение процесса преобразования."""
         self._is_running = False
         self.wait()
