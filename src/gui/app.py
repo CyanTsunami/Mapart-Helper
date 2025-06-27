@@ -12,9 +12,9 @@ import os
 import sys
 import subprocess
 
-from ..logic.methods_manager import MethodsManager
-from ..logic.image_converter import ImageConverter
-from .styles.DARK_STYLE import DARK_STYLE
+from src.logic.methods_manager import MethodsManager
+from src.logic.image_converter import ImageConverter
+from src.gui.styles.DARK_STYLE import DARK_STYLE
 
 
 __all__ = ('MainWindow')

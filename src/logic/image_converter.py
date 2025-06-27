@@ -1,9 +1,9 @@
 from PIL import Image
 from PyQt5.QtCore import QThread, pyqtSignal
 from numba import set_num_threads
+from datetime import datetime
 import numpy as np
 import os
-from datetime import datetime
 
 
 class ImageConverter(QThread):
@@ -20,7 +20,7 @@ class ImageConverter(QThread):
         image_path (str): Путь к входному изображению
         palette_colors (list): Список шестнадцатеричных строк цветов (формат: "#RRGGBB")
         method (str): Метод сопоставления цветов ('euclidean', 'weighted_euclidean',
- 'ciede2000_optimized', или 'bt2124')
+        'ciede2000_optimized', или 'bt2124')
         block_size (int): Number of pixels to process in each block
         threads (int): Количество потоков для использования (None для автоматического)
     """
@@ -41,6 +41,7 @@ class ImageConverter(QThread):
         set_num_threads(threads)
 
     def run(self):
+        print(f'Settings: {self.method} on {self.threads} threads')
         try:
             # Загрузка изображения
             img = Image.open(self.image_path)

@@ -3,6 +3,9 @@ import importlib.util
 
 
 class MethodsManager:
+    """Менеджер методов, который динамически подгружает способы обработки
+    изображений. Позволяет в программу встраивать свои методы
+    """
     def __init__(self, dir: Path):
         self.__methods = {}
         self.__methods_dir = dir
@@ -23,6 +26,7 @@ class MethodsManager:
         raise AttributeError("В модуле отсутствует функция load")
 
     def update(self):
+        """Обновляет и загружает список методов"""
         for file in self.__methods_dir.iterdir():
             filename = file.name
             if filename.endswith(".py"):
