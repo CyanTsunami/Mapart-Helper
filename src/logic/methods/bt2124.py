@@ -1,8 +1,8 @@
 import numpy as np
 import concurrent.futures
 
-from ..image_converter import ImageConverter
-from ..transformers import bt2124_batch
+from src.logic.image_converter import ImageConverter
+from src.logic.transformers import bt2124_batch
 
 
 def bt2124_method(converter: ImageConverter, img_array: np.array, palette_array: np.array) -> np.array:
@@ -53,3 +53,6 @@ def bt2124_method(converter: ImageConverter, img_array: np.array, palette_array:
 
     # Формируем итоговое изображение
     return result.reshape((height, width, 3))
+
+def load():
+    return bt2124_method, 'Rec. ITU-R BT.2124 (2019)'

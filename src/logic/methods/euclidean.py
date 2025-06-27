@@ -2,7 +2,7 @@ from scipy.spatial import cKDTree
 import numpy as np
 import concurrent.futures
 
-from ..image_converter import ImageConverter
+from src.logic.image_converter import ImageConverter
 
 
 def euclidean_method(converter: ImageConverter, img_array: np.array, palette_array: np.array) -> np.array:
@@ -55,3 +55,6 @@ def euclidean_method(converter: ImageConverter, img_array: np.array, palette_arr
 
     # Формируем итоговое изображение
     return result.reshape((height, width, 3))
+
+def load():
+    return euclidean_method, 'Евклидово расстояние (быстро)'

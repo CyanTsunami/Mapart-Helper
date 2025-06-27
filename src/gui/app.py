@@ -6,14 +6,13 @@ from PyQt5.QtGui import QPixmap, QImage
 from PyQt5.QtCore import Qt
 from multiprocessing import cpu_count
 from numba import set_num_threads
-import os
+from pathlib import Path
 import json
+import os
+import sys
 
+from ..logic.methods_manager import MethodsManager
 from ..logic.image_converter import ImageConverter
-from ..logic.methods.bt2124 import bt2124_method
-from ..logic.methods.ciede2000_optimized import ciede2000_optimized_method
-from ..logic.methods.euclidean import euclidean_method
-from ..logic.methods.weighted_euclidean import weighted_euclidean_method
 from .styles.DARK_STYLE import DARK_STYLE
 
 
@@ -23,20 +22,23 @@ __all__ = ('MainWindow', )
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.palettes = {}
         self.setAcceptDrops(True)
+        self.PARENT_PATH = Path(sys.argv[0]).parent
+        self.output_dir = self.PARENT_PATH / 'output'
+        self.methods_manager = MethodsManager(self.PARENT_PATH / 'src' / 'logic' / 'methods')
+        self.palettes = {}
         self.conversion_queue = []
         self.is_processing_queue = False
         self.current_palette = None
         self.current_image_path = None
-        self.output_dir = "output"
         self.max_threads = cpu_count() - 1 or 1
+        self.output_dir.mkdir(exist_ok=True)
         set_num_threads(self.max_threads)
-        os.makedirs(self.output_dir, exist_ok=True)
 
         self.setup_ui()
         self.setStyleSheet(DARK_STYLE)
         self.load_palettes_on_startup()
+        self.load_methods_on_startup()
 
     def setup_ui(self):
         self.setWindowTitle("Mapart Helper")
@@ -94,13 +96,6 @@ class MainWindow(QMainWindow):
         settings_layout.addWidget(QLabel("Метод:"))
 
         self.method_combo = QComboBox()
-        self.method_combo.addItems([
-            "Евклидово расстояние (быстро)",
-            "CIEDE2000 (оптимизированная)",
-            "Взвешенное евклидово",
-            "Rec. ITU-R BT.2124 (2019)"
-        ])
-        self.method_combo.setCurrentIndex(0)
         settings_layout.addWidget(self.method_combo)
 
         # Настройки потоков
@@ -126,26 +121,44 @@ class MainWindow(QMainWindow):
 
     def load_palettes_on_startup(self):
         """Загружает все сохранённые палитры при старте"""
-        palettes_dir = "palettes"
-        if not os.path.exists(palettes_dir):
-            os.makedirs(palettes_dir)
+        palettes_dir = self.PARENT_PATH / 'palettes'
+        if not palettes_dir.exists():
+            palettes_dir.mkdir(exist_ok=True)
             return
 
-        for file in os.listdir(palettes_dir):
-            if file.endswith(".json"):
+        for file in palettes_dir.iterdir():
+            filename = file.name
+            if filename.endswith(".json"):
                 try:
-                    with open(os.path.join(palettes_dir, file), 'r') as f:
-                        palette_name = os.path.splitext(file)[0]
-                        self.palettes[palette_name] = json.load(f)
+                    with open(file, 'r') as f:
+                        self.palettes[filename] = json.load(f)
                 except Exception as e:
-                    print(f"Ошибка загрузки палитры {file}: {e}")
+                    print(f"Ошибка загрузки палитры {filename}: {e}")
 
         self.update_palette_combo()
+
+    def load_methods_on_startup(self):
+        """Загружает все методы обработки при старте"""
+        methods_dir = self.PARENT_PATH / 'src' / 'logic' / 'methods'
+        if not methods_dir.exists():
+            methods_dir.mkdir(exist_ok=True)
+            QMessageBox.warning(self,
+                                "Методы не найдены!",
+                                "Папка с методами обработки не найдена и была создана заново! " \
+                                "Установите методы с репозитория или создайте собственные (для опытных)")
+            return
+        self.update_methods_combo()
+
 
     def update_palette_combo(self):
         self.palette_combo.clear()
         self.palette_combo.addItem("-- Выберите палитру --")
         self.palette_combo.addItems(sorted(self.palettes.keys()))
+
+    def update_methods_combo(self):
+        self.method_combo.clear()
+        self.methods_manager.update()
+        self.method_combo.addItems(self.methods_manager.keys())
 
     def open_image(self):
         paths, _ = QFileDialog.getOpenFileNames(
@@ -262,13 +275,7 @@ class MainWindow(QMainWindow):
         self.progress_bar.setValue(0)
         self.convert_btn.setEnabled(False)
 
-        method_map = {
-            0: euclidean_method,
-            1: ciede2000_optimized_method,
-            2: weighted_euclidean_method,
-            3: bt2124_method
-        }
-        method = method_map[self.method_combo.currentIndex()]
+        method = self.methods_manager.get(self.method_combo.currentText())
         threads = self.threads_spin.value()
 
         self.converter = ImageConverter(

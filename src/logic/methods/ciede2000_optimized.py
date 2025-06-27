@@ -1,8 +1,8 @@
 import numpy as np
 import concurrent.futures
 
-from ..image_converter import ImageConverter
-from ..transformers import (rgb_to_lab_numba, ciede2000_numba_batch)
+from src.logic.image_converter import ImageConverter
+from src.logic.transformers import (rgb_to_lab_numba, ciede2000_numba_batch)
 
 
 def ciede2000_optimized_method(converter: ImageConverter, img_array: np.array, palette_array: np.array) -> np.array:
@@ -62,3 +62,6 @@ def ciede2000_optimized_method(converter: ImageConverter, img_array: np.array, p
             converter.progress_updated.emit(progress)
     
     return result
+
+def load():
+    return ciede2000_optimized_method, 'CIEDE2000 (оптимизированная)'

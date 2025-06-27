@@ -1,8 +1,8 @@
 import numpy as np
 import concurrent.futures
 
-from ..image_converter import ImageConverter
-from ..transformers import (WEIGHTED_EUCLIDEAN_WEIGHTS, weighted_euclidean_batch)
+from src.logic.image_converter import ImageConverter
+from src.logic.transformers import (WEIGHTED_EUCLIDEAN_WEIGHTS, weighted_euclidean_batch)
 
 
 def weighted_euclidean_method(converter: ImageConverter, img_array: np.array, palette_array: np.array) -> np.array:
@@ -54,3 +54,6 @@ def weighted_euclidean_method(converter: ImageConverter, img_array: np.array, pa
 
     # Формируем итоговое изображение
     return result.reshape((height, width, 3))
+
+def load():
+    return weighted_euclidean_method, 'Взвешенное евклидово'
