@@ -10,13 +10,14 @@ from pathlib import Path
 import json
 import os
 import sys
+import subprocess
 
 from ..logic.methods_manager import MethodsManager
 from ..logic.image_converter import ImageConverter
 from .styles.DARK_STYLE import DARK_STYLE
 
 
-__all__ = ('MainWindow', )
+__all__ = ('MainWindow')
 
 
 class MainWindow(QMainWindow):
@@ -59,11 +60,13 @@ class MainWindow(QMainWindow):
         # Исходное изображение
         self.image_label = QLabel("Перетащите изображение сюда", self)
         self.image_label.setMinimumSize(450, 400)
+        self.image_label.setToolTip("Область для отображения исходного изображения")
         images_layout.addWidget(self.image_label)
 
         # Результат
         self.result_label = QLabel("Результат конвертации", self)
         self.result_label.setMinimumSize(450, 400)
+        self.result_label.setToolTip("Область для отображения результата конвертации")
         images_layout.addWidget(self.result_label)
 
         main_layout.addLayout(images_layout)
@@ -73,13 +76,23 @@ class MainWindow(QMainWindow):
         control_panel.setSpacing(10)
 
         self.open_image_btn = QPushButton("Открыть изображение", self)
+        self.open_image_btn.setToolTip("Открыть одно или несколько изображений для конвертации")
+
         self.open_palette_btn = QPushButton("Открыть палитру", self)
+        self.open_palette_btn.setToolTip("Загрузить новую палитру из файла (TXT или JSON)")
+
         self.convert_btn = QPushButton("Конвертировать", self)
+        self.convert_btn.setToolTip("Начать конвертацию текущего изображения или очереди")
         self.convert_btn.setEnabled(False)
+
+        self.open_output_btn = QPushButton("Открыть результаты", self)
+        self.open_output_btn.setToolTip("Открыть папку с результатами конвертации")
+        self.open_output_btn.clicked.connect(self.open_output_folder)
 
         control_panel.addWidget(self.open_image_btn)
         control_panel.addWidget(self.open_palette_btn)
         control_panel.addWidget(self.convert_btn)
+        control_panel.addWidget(self.open_output_btn)
 
         main_layout.addLayout(control_panel)
 
@@ -91,6 +104,7 @@ class MainWindow(QMainWindow):
 
         self.palette_combo = QComboBox()
         self.palette_combo.setMinimumWidth(200)
+        self.palette_combo.setToolTip("Выберите палитру для конвертации изображения")
         settings_layout.addWidget(self.palette_combo)
 
         settings_layout.addWidget(QLabel("Метод:"))
@@ -103,6 +117,7 @@ class MainWindow(QMainWindow):
         self.threads_spin = QSpinBox()
         self.threads_spin.setRange(1, self.max_threads)
         self.threads_spin.setValue(self.max_threads)
+        self.threads_spin.setToolTip(f"Количество потоков для обработки (рекомендуется: {self.max_threads})")
         settings_layout.addWidget(self.threads_spin)
 
         main_layout.addLayout(settings_layout)
@@ -111,6 +126,7 @@ class MainWindow(QMainWindow):
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
+        self.progress_bar.setToolTip("Прогресс выполнения текущей операции")
         main_layout.addWidget(self.progress_bar)
 
         # Подключаем сигналы
@@ -118,6 +134,17 @@ class MainWindow(QMainWindow):
         self.open_palette_btn.clicked.connect(self.open_palette)
         self.convert_btn.clicked.connect(self.convert_current_image)
         self.palette_combo.currentTextChanged.connect(self.select_palette)
+
+    def open_output_folder(self):
+        """Открывает папку с результатами в проводнике системы"""
+        output_path = os.path.abspath(self.output_dir)
+        try:
+            if os.name == 'nt':  # Для Windows
+                os.startfile(output_path)
+            elif os.name == 'posix':  # Для Linux/Mac
+                subprocess.Popen(['xdg-open', output_path])
+        except Exception as e:
+            QMessageBox.warning(self, "Ошибка", f"Не удалось открыть папку:\n{str(e)}")
 
     def load_palettes_on_startup(self):
         """Загружает все сохранённые палитры при старте"""
@@ -196,7 +223,7 @@ class MainWindow(QMainWindow):
         try:
             if path.lower().endswith('.txt'):
                 with open(path, 'r') as f:
-                    lines = filter(lambda line: not line.startswith(';'), f.readlines()) # Комментарии могут быть в разном количестве
+                    lines = filter(lambda line: not line.startswith(';'), f.readlines())
                     colors = [line.strip() for line in lines if line.strip()]
                     palette_name = os.path.splitext(os.path.basename(path))[0]
                     self.palettes[palette_name] = colors
@@ -263,6 +290,7 @@ class MainWindow(QMainWindow):
         if not self.conversion_queue:
             self.is_processing_queue = False
             QMessageBox.information(self, "Готово", "Все изображения обработаны")
+            self.open_output_folder()  # Открываем папку после обработки всей очереди
             return
 
         self.is_processing_queue = True
@@ -324,6 +352,8 @@ class MainWindow(QMainWindow):
             self.process_next_in_queue()
         else:
             self.is_processing_queue = False
+            # Открываем папку output после завершения всех операций
+            self.open_output_folder()
 
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
